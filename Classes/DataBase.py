@@ -1,4 +1,5 @@
 import pandas as pd
+import os
 from binance.client import Client
 from datetime import datetime
 
@@ -28,7 +29,29 @@ class DataBase:
 
         if self.verbose:
             print("Initialisation de la base de données...")
-        self.database = pd.read_csv('data/database.csv')
+
+        self.load_database()
+
+    def load_database(self):
+        """
+        Charge la base de données à partir du fichier CSV 'database.csv'.
+        Si le fichier ou le dossier n'existe pas, les crée avec les colonnes spécifiées.
+        """
+        directory = 'data'
+        file_path = os.path.join(directory, 'database.csv')
+        
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        
+        if not os.path.exists(file_path):
+            # Créer un DataFrame vide avec les colonnes spécifiées
+            columns = ['ID', 'Date', 'Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']
+            df = pd.DataFrame(columns=columns)
+            # Sauvegarder le DataFrame dans un fichier CSV
+            df.to_csv(file_path, index=False)
+        
+        # Charger le fichier CSV dans self.database
+        self.database = pd.read_csv(file_path)
 
     def get_binance_historical_data(self, symbol, start_date, end_date):
         """
@@ -103,6 +126,32 @@ class DataBase:
         ]
         return filtered_data
     
+    def del_data(self, symbols, dates):
+        """
+        Supprime les lignes de la base de données pour les symboles et les dates spécifiés.
+
+        Args:
+            symbols (list): Liste des symboles à filtrer.
+            dates (list): Liste des dates au format 'YYYY-MM-DD' à supprimer.
+
+        Returns:
+            None
+        """
+        # Filtrer les données à supprimer
+        mask = (self.database['ID'].isin(symbols)) & (self.database['Date'].isin(dates))
+        
+        # Supprimer les lignes correspondantes
+        self.database = self.database[~mask]
+
+    def save_database(self):
+        """
+        Sauvegarde la base de données dans le fichier CSV 'database.csv'.
+        """
+        self.database = self.database.sort_values(['ID', 'Date'])
+        self.database.to_csv('data/database.csv', index=False)
+        if self.verbose:
+            print("Base de données sauvegardée.")
+    
     def update_database(self):
         """
         Vérifie et met à jour la base de données avec les nouvelles données pour chaque symbole.
@@ -137,10 +186,7 @@ class DataBase:
                     print(f"Les données pour {symbol} sont à jour.")
         
         if modified:
-            self.database.sort_values(['ID', 'Date'], inplace=True)
-            self.database.to_csv('data/database.csv', index=False)
-            if self.verbose:
-                print("Base de données mise à jour.")
+            self.save_database()
         else:
             if self.verbose:
                 print("Aucune mise à jour nécessaire.")
