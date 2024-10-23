@@ -142,31 +142,67 @@ class Signals:
 
         return to_buy, to_sell
     
-    def Momentum(self):
+class Momentum:
         """
         Calcule les rendements sur 1 mois, 1 an,
         puis applique la stratégie de Momentum qui consite à acheter les cryptos au plus haut rendement et vendre celles qui ont les rendements les plus faibles .
 
         :return: DataFrame avec les actifs et leur rank.
         """
+        
+        def __init__(self, historical_data, num_assets=8, lookback_period=180):
+            self.historical_data = pd.read_csv(historical_data)
+            self.num_assets = num_assets
+            self.lookback_period = lookback_period
+            self.historical_data['Date']  = pd.to_datetime(self.historical_data['Date'])
+            self.historical_data.set_index('Date', inplace=True)
         # Calculer les retours pour les trois périodes
-        returns_1m = self.calculate_returns(1)
-        returns_12m = self.calculate_returns(12)
 
-        # Fusionner les données de retours
-        momentum_data = returns_1m.merge(returns_12m, on='ID', how='outer')
+        def calculate_return(self):
+            self.returns = self.historical_data.pct_change()
+            
+            
+        def calculate_volatility(self):
+            self.volatility = self.returns.rolling(window=365, min_periods=1).std().mean()
+            
+            
+        def select_assets(self):
+            """ periode de lookback - la periode la plus récente
+            """
+            self.total_returns = self.returns.rolling(window=self.lookback_period).apply(lambda x: (1 + x).prod() - 1)
+            # Sélectionner les actifs avec les meilleurs rendements
+            self.top_assets = self.total_returns.iloc[-1].nlargest(self.num_assets).index.tolist()
+            # Sélectionner les actifs avec les pires rendements
+            self.bottom_assets = self.total_returns.iloc[-1].nsmallest(self.num_assets).index.tolist()
 
-        # Calculer la moyenne des retours sur les trois périodes
-        momentum_data['average_returns'] = momentum_data[['returns_1_months', 'returns_12_months']].mean(axis=1)
-        
-        momentum_data['average_returns'] = momentum_data['returns_12_months'] - momentum_data['returns_1_months']
+        def calculate_weights(self):
+            """Calcule les poids des actifs basés sur la variation de la performance.
+                on prends la valeur absolue de car on veux buy les meilleurs et short les moins bonnes
+                c'est pour ca qu'on *-1 pour self.relative_weights_bottom_assets pour s'assurer qu'on est des chiffres négatifs et qu'on short
+            """
+            # Calculer la variation quotidienne de la performance pour les actifs sélectionnés
+            daily_variation_top_assets = self.returns[self.top_assets].diff().abs()
+            
+            # Calculer les poids relatifs en divisant la variation quotidienne de chaque actif par la variation totale
+            self.relative_weights_top_assets = daily_variation_top_assets.div(daily_variation_top_assets.sum(axis=1), axis=0)
+            self.relative_weights_top_assets = self.relative_weights_top_assets.iloc[-1]
+            
+            # Calculer la variation quotidienne de la performance pour les actifs sélectionnés
+            daily_variation_botom_assets = self.returns[self.bottom_assets].diff().abs()
+            
+            # Calculer les poids relatifs en divisant la variation quotidienne de chaque actif par la variation totale
+            self.relative_weights_bottom_assets = daily_variation_botom_assets.div(daily_variation_botom_assets.sum(axis=1), axis=0)
+            self.relative_weights_bottom_assets = self.relative_weights_bottom_assets.iloc[-1] * -1
+            
+            self.total_weights = pd.concat([self.relative_weights_top_assets, self.relative_weights_bottom_assets])
 
-        # Calculer le rang des actifs basé sur leurs rendements moyens
-        momentum_data['Rank'] = momentum_data['average_returns'].rank(ascending=False)
-        
-        momentum_data.sort_values(by='average_returns', ascending=False, inplace=True)
 
-        return momentum_data
-
+        def run_strat(self):
+            self.calculate_return()
+            self.select_assets()
+            self.calculate_weights()
+            
+            
+            return self.total_weights
 
 
