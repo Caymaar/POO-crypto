@@ -126,19 +126,23 @@ class DataBase:
         ]
         return filtered_data
     
-    def del_data(self, symbols, dates):
+    def del_data(self, symbols, dates=None):
         """
         Supprime les lignes de la base de données pour les symboles et les dates spécifiés.
 
         Args:
             symbols (list): Liste des symboles à filtrer.
-            dates (list): Liste des dates au format 'YYYY-MM-DD' à supprimer.
+            dates (list, optional): Liste des dates au format 'YYYY-MM-DD' à supprimer. Si None, supprime pour toutes les dates.
 
         Returns:
             None
         """
-        # Filtrer les données à supprimer
-        mask = (self.database['ID'].isin(symbols)) & (self.database['Date'].isin(dates))
+        if dates is None:
+            # Filtrer les données à supprimer uniquement par symboles
+            mask = self.database['ID'].isin(symbols)
+        else:
+            # Filtrer les données à supprimer par symboles et dates
+            mask = (self.database['ID'].isin(symbols)) & (self.database['Date'].isin(dates))
         
         # Supprimer les lignes correspondantes
         self.database = self.database[~mask]
@@ -192,3 +196,24 @@ class DataBase:
                 print("Aucune mise à jour nécessaire.")
         
         return notlisted
+    
+    def from_ohlcv_to_close(self, ohlcv_df):
+        """
+        Transforme ohlcv_df, un DataFrame OHLCV en un DataFrame avec les dates en index,
+        les IDs en colonnes, et les prix de clôture en valeurs.
+        """
+
+        ohlcv_df = ohlcv_df[['Date', 'ID', 'Close']].copy()
+
+        # Assurez-vous que la colonne 'Date' est au format datetime
+        ohlcv_df['Date'] = pd.to_datetime(ohlcv_df['Date'])
+        
+        # Gérer les doublons en gardant la dernière entrée pour chaque combinaison 'Date' et 'ID'
+        ohlcv_df = ohlcv_df.sort_values('Date')
+        ohlcv_df = ohlcv_df.drop_duplicates(subset=['Date', 'ID'], keep='last')
+        
+        # Pivotement du DataFrame pour obtenir le format désiré
+        close_df = ohlcv_df.pivot(index='Date', columns='ID', values='Close')
+        
+        return close_df
+

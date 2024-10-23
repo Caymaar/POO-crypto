@@ -53,13 +53,13 @@ class Univers:
         print("Univers initialisé avec succès.")
 
         # Initialiser la base de données 
-        db = DataBase(self.all_symbols, self.start_date, self.end_date, verbose=verbose)
+        self.db = DataBase(self.all_symbols, self.start_date, self.end_date, verbose=verbose)
 
         # Mettre à jour la base de données et obtenir la liste des symboles non disponibles
-        self.notlisted_symbols = db.update_database()
+        self.notlisted_symbols = self.db.update_database()
 
         # Récupérer les données historiques pour les symboles disponibles
-        self.data = db.get_data(self.all_symbols, self.start_date, self.end_date)
+        self.data = self.db.from_ohlcv_to_close(self.db.get_data(self.all_symbols, self.start_date, self.end_date))
 
         # Afficher les symboles non disponibles
         if self.verbose:
