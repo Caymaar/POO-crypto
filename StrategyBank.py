@@ -150,27 +150,8 @@ class MinVolStrategy:
         # Calculer les poids relatifs en divisant la variation quotidienne de chaque actif par la variation totale
         relative_weights = daily_variation.div(daily_variation.sum(axis=1), axis=0)
         relative_weights = relative_weights.iloc[-1]
-        # Remplacer les NaN par des zéros
-        self.adjusted_weights_over_time = relative_weights.fillna(0)
         
         return relative_weights
     
     
 
-data = pd.read_csv(r"C:\Users\admin\Desktop\cours dauphine\poo\projet\data\database.csv")
-data['Date']  = pd.to_datetime(data['Date'])
-data.set_index('Date', inplace=True)
-
-data = data.pct_change().dropna()
-total_returns = data.rolling(window=365).apply(lambda x: (1 + x).prod() - 1)
- 
-a = MomentumStrategy(r"C:\Users\admin\Desktop\cours dauphine\poo\projet\data\database.csv")
-a.rank_assets()
-
-a = ValueStrategy(r"C:\Users\admin\Desktop\cours dauphine\poo\projet\data\database.csv")
-
-a.rank_assets()
-
-a = MinVolStrategy(r"C:\Users\admin\Desktop\cours dauphine\poo\projet\data\database.csv")
-
-a.rank_assets()
