@@ -1,33 +1,18 @@
 import requests
 import pandas as pd
 import time
-
+from typing import List, Dict, Union
 from Classes.DataBase import DataBase
 
 
 class Univers:
     """
     La classe Univers interagit avec l'API CoinGecko pour récupérer et structurer des données 
-    de marché sur différentes catégories de cryptomonnaies. Elle permet de récupérer les symboles, 
-    leur historique de prix et de comparer les catégories d'actifs.
+    de marché sur différentes catégories de cryptomonnaies.
+    """
 
-    Attributes:
-        nb_actif (int): Nombre d'actifs à récupérer par catégorie.
-        start_date (str): Date de début pour les données historiques au format 'YYYY-MM-DD'.
-        end_date (str): Date de fin pour les données historiques au format 'YYYY-MM-DD'.
-        categories (list): Liste des catégories d'actifs à analyser.
-        verbose (bool): Indicateur pour afficher ou non les messages de débogage.
-        data_merged (pd.DataFrame): DataFrame contenant les données récupérées.
-        all_symbols (list): Liste de tous les symboles récupérés.
-        category_dict (dict): Dictionnaire contenant les symboles classés par catégorie.
-        notlisted_symbols (list): Liste des symboles non disponibles sur Binance.
-        data (pd.DataFrame): Données historiques filtrées récupérées de la base de données.
-    
-    Methods:
-        get_symbols(): Récupère les symboles pour chaque catégorie spécifiée depuis l'API CoinGecko.
-        """
-
-    def __init__(self, categories, start_date, end_date, nb_actif=10, verbose=False):
+    def __init__(self, categories: Union[List[str], str], start_date: str, end_date: str, 
+                 nb_actif: int = 10, verbose: bool = False) -> None:
         """
         Initialise la classe Univers avec les catégories d'actifs, la période temporelle, et d'autres options.
 
@@ -53,10 +38,10 @@ class Univers:
         print("Univers initialisé avec succès.")
 
         # Initialiser la base de données 
-        self.db = DataBase(self.all_symbols, self.start_date, self.end_date, verbose=verbose)
+        self.db = DataBase(verbose=verbose)
 
         # Mettre à jour la base de données et obtenir la liste des symboles non disponibles
-        self.notlisted_symbols = self.db.update_database()
+        self.notlisted_symbols = self.db.update_database(self.all_symbols, self.start_date, self.end_date)
 
         # Récupérer les données historiques pour les symboles disponibles
         self.data = self.db.from_ohlcv_to_close(self.db.get_data(self.all_symbols, self.start_date, self.end_date))
@@ -68,7 +53,7 @@ class Univers:
             else:
                 print("Tous les symboles ont été récupérés avec succès.")
 
-    def get_symbols(self):
+    def get_symbols(self) -> None:
         """
         Récupère les symboles des catégories spécifiées depuis l'API CoinGecko et les structure 
         dans un DataFrame. Ces symboles sont ensuite utilisés pour récupérer les données historiques.

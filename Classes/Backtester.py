@@ -1,17 +1,52 @@
 import numpy as np
 import pandas as pd
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from Classes.Result import Result
+from Classes.Strategy import RankedStrategy
 
 class Backtester:
 
-    def __init__(self, data):
+    def __init__(self, data: pd.DataFrame) -> None:
+        """
+        Initialise le backtester avec les données de prix.
+
+        Args:
+        - data (pd.DataFrame): Données de prix historiques.
+
+        Returns:
+        - None
+        """
 
         self.data = data
         #self.returns = self.data.pct_change().iloc[1:]
 
-    def run(self, start_date=None, end_date=None, freq=30, window=365, aum=100, transaction_cost=0.0, strategy=None):
+    def run(self, 
+            start_date: Optional[pd.Timestamp] = None, 
+            end_date: Optional[pd.Timestamp] = None, 
+            freq: int = 30, 
+            window: int = 365, 
+            aum: float = 100, 
+            transaction_cost: float = 0.0, 
+            strategy: RankedStrategy = None) -> Result:
+        """
+        Exécute le backtest avec les paramètres spécifiés.
 
+        Args:
+        - start_date (pd.Timestamp): Date de début du backtest.
+        - end_date (pd.Timestamp): Date de fin du backtest.
+        - freq (int): Fréquence de rééquilibrage en jours.
+        - window (int): Fenêtre de formation en jours.
+        - aum (float): Actifs sous gestion.
+        - transaction_cost (float): Coût de transaction en pourcentage.
+        - strategy (RankedStrategy): Stratégie de trading à tester.
+
+        Returns:
+        - Result: Résultats du backtest.
+        """
+
+        if strategy is None:
+            raise ValueError("A strategy must be provided to run the backtest.")
+        
         if start_date is None:
             start_date = self.returns.index[0]
 
@@ -30,9 +65,19 @@ class Backtester:
         self.calculate_weights(strategy)
         self.calculate_performance()
 
-        return Result(self.performance, self.weights, self.total_transaction_costs)
+        return Result(self.performance, self.weights, self.total_transaction_costs, strategy.name)
 
-    def calculate_weights(self, strategy):
+    def calculate_weights(self, strategy: RankedStrategy) -> None:
+        """
+        Calcule les poids optimaux pour chaque date de rééquilibrage.
+
+        Args:
+        - strategy (RankedStrategy): Stratégie de trading à tester.
+
+        Returns:
+        - None
+        """
+
         # Initialize lists to collect weights and dates
         weights_list = []
         dates_list = []
@@ -53,7 +98,7 @@ class Backtester:
         while current_date >= prices.index[0] + window_dt:
             rebalancing_dates.append(current_date)
             current_date -= freq_dt
-
+    
         # Reverse the list to have dates in ascending order
         rebalancing_dates.reverse()
 
@@ -70,7 +115,8 @@ class Backtester:
 
             # Drop columns with missing values
             price_window_filtered = price_window.dropna(axis=1)
-
+            if price_window_filtered.empty:
+                print(f"No data available for {current_date}. Skipping...")
             # Get new weights from strategy
             final_optimal_weights = strategy.get_position(price_window_filtered, last_weights)
             last_weights = final_optimal_weights
@@ -85,29 +131,38 @@ class Backtester:
         # Assign the calculated weights
         self.weights = optimal_weights_df.fillna(0.0)
 
-    def calculate_performance(self):
+    def calculate_performance(self) -> None:
+        """
+        Calcule la performance du portefeuille en utilisant les poids calculés.
+
+        Returns:
+        - None
+        """
+        
         balance = self.aum
 
         # Get the first date where weights are available
         first_valid_date = self.weights.first_valid_index()
-
+        
         # Get the data within the specified date range
         df = self.data[self.start_date:self.end_date]
 
+        df = df.dropna(axis=1, how='all')
+        
         # Backfill missing values to handle days where weights are not available
-        df = df.bfill()
         df = df.ffill()
+        df = df.bfill()   
 
         # Calculate returns
-        returns = df.pct_change(fill_method=None).dropna()
+        returns = df.pct_change()[1:]
 
         # Initialize total transaction costs and previous weights
         self.total_transaction_costs = 0
         previous_weights = pd.Series(0.0, index=self.weights.columns)
 
         # Initialize lists to store portfolio values and dates
-        portfolio_values = []
-        dates = []
+        portfolio_values = [self.aum]
+        dates = [first_valid_date - pd.DateOffset(days=1)]
 
         # Get the list of dates to iterate over
         date_range = returns.loc[first_valid_date:].index

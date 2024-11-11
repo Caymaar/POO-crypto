@@ -2,14 +2,20 @@ from abc import ABC, abstractmethod
 import pandas as pd
 import numpy as np
 from scipy.optimize import minimize
+from typing import List, Dict
 
 class Strategy(ABC):
     """
     Classe abstraite pour définir une stratégie d'investissement.
     """
+    def __init__(self) -> None:
+        """
+        Initialise la stratégie avec le nom de la classe fille.
+        """
+        self.name: str = self.__class__.__name__
 
     @abstractmethod
-    def get_position(self, historical_data, current_position):
+    def get_position(self, historical_data: pd.DataFrame, current_position: pd.Series) -> pd.Series:
         """
         Méthode obligatoire pour déterminer la position actuelle.
 
@@ -23,9 +29,22 @@ class Strategy(ABC):
         pass
 
 class OptimizationStrategy(Strategy):
-    def __init__(self, num_clusters=5, max_weight=0.1, min_weight=0.0,
-                 min_weight_sector=0.0, max_weight_sector=0.3,
-                 risk_free_rate=0.01, total_exposure=1.0):
+    def __init__(self, num_clusters: int = 5, max_weight: float = 0.1, min_weight: float = 0.0,
+                 min_weight_sector: float = 0.0, max_weight_sector: float = 0.3,
+                 risk_free_rate: float = 0.01, total_exposure: float = 1.0) -> None:
+        """
+        Initialise la stratégie d'optimisation avec des paramètres spécifiques.
+
+        Args:
+            num_clusters (int): Nombre de clusters pour le regroupement d'actifs.
+            max_weight (float): Poids maximum par actif.
+            min_weight (float): Poids minimum par actif.
+            min_weight_sector (float): Poids minimum par secteur.
+            max_weight_sector (float): Poids maximum par secteur.
+            risk_free_rate (float): Taux sans risque.
+            total_exposure (float): Exposition totale du portefeuille.
+        """
+        super().__init__()
         self.num_clusters = num_clusters
         self.max_weight = max_weight
         self.min_weight = min_weight
@@ -34,7 +53,18 @@ class OptimizationStrategy(Strategy):
         self.risk_free_rate = risk_free_rate
         self.total_exposure = total_exposure
 
-    def get_position(self, historical_data, current_position):
+    def get_position(self, historical_data: pd.DataFrame, current_position: pd.Series) -> pd.Series:
+        """
+        Détermine la nouvelle position en fonction des données historiques.
+
+        Args:
+            historical_data (pd.DataFrame): Les données historiques.
+            current_position (pd.Series): La position actuelle.
+
+        Returns:
+            pd.Series: La nouvelle position calculée par optimisation.
+        """
+
         # Calculer les rendements
         returns = historical_data.pct_change().dropna()
 
@@ -85,7 +115,13 @@ class OptimizationStrategy(Strategy):
             warnings.warn("L'optimisation n'a pas réussi: " + result.message + ". Utilisation des poids précédents.")
             return current_position
 
-    def create_portfolio_constraints(self, returns):
+    def create_portfolio_constraints(self) -> List[Dict[str, any]]:
+        """
+        Crée les contraintes pour l'optimisation du portefeuille.
+
+        Returns:
+            List[Dict[str, any]]: Liste de contraintes pour l'optimisation.
+        """
         # Créer les contraintes du portefeuille
         constraints = [
             {'type': 'eq', 'fun': lambda x: np.sum(x) - self.total_exposure},
@@ -96,12 +132,12 @@ class OptimizationStrategy(Strategy):
         return constraints
 
     @abstractmethod
-    def objective_function(self, weights, expected_returns, cov_matrix):
+    def objective_function(self, weights: np.ndarray, expected_returns: pd.Series, cov_matrix: pd.DataFrame) -> float:
         """
-        Fonction objectif à minimiser. Doit être implémentée par les sous-classes.
+        Fonction objectif à minimiser, définie par les sous-classes.
 
         Args:
-            weights (numpy.array): Poids du portefeuille.
+            weights (numpy.ndarray): Poids du portefeuille.
             expected_returns (pd.Series): Rendements attendus des actifs.
             cov_matrix (pd.DataFrame): Matrice de covariance.
 
@@ -111,12 +147,40 @@ class OptimizationStrategy(Strategy):
         pass
 
 class RankedStrategy(Strategy):
-    def get_position(self, historical_data, current_position):
-        pass
+    def get_position(self, historical_data: pd.DataFrame, current_position: pd.Series) -> pd.Series:
+        """
+        Calcule la position en classant les actifs.
 
+        Args:
+            historical_data (pd.DataFrame): Les données historiques.
+            current_position (pd.Series): La position actuelle.
+
+        Returns:
+            pd.Series: La nouvelle position basée sur le classement des actifs.
+        """
+        ranked_assets = self.rank_assets(historical_data)
+
+        num_assets = ranked_assets.count()
+        sum_of_ranks = ranked_assets.sum()
+        average = sum_of_ranks / num_assets
+        weights = (ranked_assets - average)
+
+        total_abs_ranks = sum(abs(weights))
+
+        normalized_weights = weights / total_abs_ranks
+
+        return normalized_weights
+
+    
     @abstractmethod
-    def rank_assets(self, historical_data):
+    def rank_assets(self, historical_data: pd.DataFrame) -> pd.Series:
         """
         Classe abstraite pour déterminer le classement des actifs.
+
+        Args:
+            historical_data (pd.DataFrame): Les données historiques.
+
+        Returns:
+            pd.Series: Classement des actifs.
         """
         pass

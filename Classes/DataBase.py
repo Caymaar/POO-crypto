@@ -2,29 +2,24 @@ import pandas as pd
 import os
 from binance.client import Client
 from datetime import datetime
+from typing import List, Tuple, Optional
 
 class DataBase:
     """
     Classe pour gérer une base de données d'actifs financiers à partir de Binance,
     permettant de récupérer, filtrer et mettre à jour des données historiques.
     """
-    def __init__(self, symbols, start_date, end_date, verbose=False):
+    def __init__(self, verbose: bool = False) -> None:
         """
         Initialise la base de données en définissant les symboles, les dates de début et de fin,
         et la connexion à l'API Binance.
 
         Args:
-            symbols (list): Liste des symboles à suivre.
-            start_date (str): Date de début des données au format 'YYYY-MM-DD'.
-            end_date (str): Date de fin des données au format 'YYYY-MM-DD'.
             verbose (bool): Active les messages de débogage si True.
         """
         self.api_key = 'AAJWE5TewkT5QCivRev9s5r2MpmZMUFXXGokxJL9mlZkZadRiKCEky0tho7OMGxW'
         self.api_secret = 'TxA2VRCyvVHLkn4DZvucbvCkTpNWYDQJeHVcKCDiJD7G5usNd7CrBNKd8rea1vPP'
         self.client = Client(self.api_key, self.api_secret)
-        self.symbols = symbols
-        self.start_date = start_date
-        self.end_date = end_date
         self.verbose = verbose
 
         if self.verbose:
@@ -32,7 +27,7 @@ class DataBase:
 
         self.load_database()
 
-    def load_database(self):
+    def load_database(self) -> None:
         """
         Charge la base de données à partir du fichier CSV 'database.csv'.
         Si le fichier ou le dossier n'existe pas, les crée avec les colonnes spécifiées.
@@ -53,7 +48,7 @@ class DataBase:
         # Charger le fichier CSV dans self.database
         self.database = pd.read_csv(file_path)
 
-    def get_binance_historical_data(self, symbol, start_date, end_date):
+    def get_binance_historical_data(self, symbol: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
         """
         Récupère les données historiques pour un symbole depuis Binance entre deux dates.
 
@@ -65,6 +60,7 @@ class DataBase:
         Returns:
             pd.DataFrame: Données historiques sous forme de DataFrame, ou None si une erreur survient.
         """
+
         try:
             klines = self.client.get_historical_klines(
                 symbol,
@@ -92,7 +88,7 @@ class DataBase:
                 print(f"Erreur lors de la récupération des données pour {symbol}: {e}")
             return None
 
-    def get_symbol_date_range(self, symbol):
+    def get_symbol_date_range(self, symbol: str) -> Tuple[Optional[str], Optional[str]]:
         """
         Retourne les dates minimum et maximum pour un symbole donné dans la base de données.
 
@@ -107,10 +103,10 @@ class DataBase:
             return None, None
         return df_temp['Date'].min(), df_temp['Date'].max()
 
-    def get_data(self, symbols, start_date, end_date):
+    def get_data(self, symbols: List[str], start_date: str, end_date: str) -> pd.DataFrame:
         """
         Filtre et retourne les données de la base de données pour les symboles et la période spécifiés.
-
+ 
         Args:
             symbols (list): Liste des symboles à filtrer.
             start_date (str): Date de début au format 'YYYY-MM-DD'.
@@ -126,16 +122,13 @@ class DataBase:
         ]
         return filtered_data
     
-    def del_data(self, symbols, dates=None):
+    def del_data(self, symbols: List[str], dates: Optional[List[str]] = None) -> None:
         """
         Supprime les lignes de la base de données pour les symboles et les dates spécifiés.
 
         Args:
             symbols (list): Liste des symboles à filtrer.
             dates (list, optional): Liste des dates au format 'YYYY-MM-DD' à supprimer. Si None, supprime pour toutes les dates.
-
-        Returns:
-            None
         """
         if dates is None:
             # Filtrer les données à supprimer uniquement par symboles
@@ -147,7 +140,7 @@ class DataBase:
         # Supprimer les lignes correspondantes
         self.database = self.database[~mask]
 
-    def save_database(self):
+    def save_database(self) -> None:
         """
         Sauvegarde la base de données dans le fichier CSV 'database.csv'.
         """
@@ -156,7 +149,7 @@ class DataBase:
         if self.verbose:
             print("Base de données sauvegardée.")
     
-    def update_database(self):
+    def update_database(self, symbols: List[str], start_date: str, end_date: str) -> List[str]:
         """
         Vérifie et met à jour la base de données avec les nouvelles données pour chaque symbole.
         Si de nouvelles données sont récupérées, la base de données est mise à jour et sauvegardée.
@@ -164,18 +157,19 @@ class DataBase:
         Returns:
             list: Liste des symboles non disponibles sur Binance.
         """
+
         notlisted = []
         modified = False
 
-        for symbol in self.symbols:
+        for symbol in symbols:
             if self.verbose:
                 print(f"Vérification des données pour {symbol}...")
             
             min_date, max_date = self.get_symbol_date_range(symbol)
 
             if min_date is None or max_date < self.end_date:
-                start_date = max_date if max_date else self.start_date
-                new_data = self.get_binance_historical_data(symbol, start_date, self.end_date)
+                new_start_date = max_date if max_date else start_date
+                new_data = self.get_binance_historical_data(symbol, new_start_date, end_date)
                 
                 if new_data is None:
                     notlisted.append(symbol)
@@ -184,7 +178,7 @@ class DataBase:
                 self.database = pd.concat([self.database, new_data], ignore_index=True)
                 modified = True
                 if self.verbose:
-                    print(f"Données mises à jour pour {symbol} ({start_date} - {self.end_date}).")
+                    print(f"Données mises à jour pour {symbol} ({new_start_date} - {end_date}).")
             else:
                 if self.verbose:
                     print(f"Les données pour {symbol} sont à jour.")
@@ -197,23 +191,31 @@ class DataBase:
         
         return notlisted
     
-    def from_ohlcv_to_close(self, ohlcv_df):
+    @staticmethod
+    def from_ohlcv_to_close(ohlcv_df: pd.DataFrame) -> pd.DataFrame:
         """
         Transforme ohlcv_df, un DataFrame OHLCV en un DataFrame avec les dates en index,
         les IDs en colonnes, et les prix de clôture en valeurs.
-        """
 
-        ohlcv_df = ohlcv_df[['Date', 'ID', 'Close']].copy()
+        Args:
+            ohlcv_df (pd.DataFrame): DataFrame contenant les données OHLCV.
+
+        Returns:
+            pd.DataFrame: DataFrame pivoté avec les prix de clôture.
+        """
+        ohlcv_df.columns = [col.upper() for col in ohlcv_df.columns]
+
+        ohlcv_df = ohlcv_df[['DATE', 'ID', 'CLOSE']].copy()
 
         # Assurez-vous que la colonne 'Date' est au format datetime
-        ohlcv_df['Date'] = pd.to_datetime(ohlcv_df['Date'])
+        ohlcv_df['DATE'] = pd.to_datetime(ohlcv_df['DATE'])
         
         # Gérer les doublons en gardant la dernière entrée pour chaque combinaison 'Date' et 'ID'
-        ohlcv_df = ohlcv_df.sort_values('Date')
-        ohlcv_df = ohlcv_df.drop_duplicates(subset=['Date', 'ID'], keep='last')
+        ohlcv_df = ohlcv_df.sort_values('DATE')
+        ohlcv_df = ohlcv_df.drop_duplicates(subset=['DATE', 'ID'], keep='last')
         
         # Pivotement du DataFrame pour obtenir le format désiré
-        close_df = ohlcv_df.pivot(index='Date', columns='ID', values='Close')
+        close_df = ohlcv_df.pivot(index='DATE', columns='ID', values='CLOSE')
         
         return close_df
 
