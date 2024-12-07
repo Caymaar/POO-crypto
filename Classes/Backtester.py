@@ -1,24 +1,55 @@
 import numpy as np
 import pandas as pd
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict
 from Classes.Result import Result
-from Classes.Strategy import RankedStrategy
+from Classes.Strategy import Strategy
+ 
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
 
 class Backtester:
-
-    def __init__(self, data: pd.DataFrame) -> None:
+    def __init__(self, data: pd.DataFrame, dates_universe: Dict[str, List[str]] = None) -> None:
         """
-        Initialise le backtester avec les données de prix.
+        Initialise le backtester avec les données de prix et optionnellement un dictionnaire d'univers par date.
 
         Args:
-        - data (pd.DataFrame): Données de prix historiques.
-
-        Returns:
-        - None
+            data: pd.DataFrame ou pd.Series avec les prix
+            dates_universe: Dict[str, List[str]], dictionnaire avec dates (YYYY-MM-DD) et listes de tickers
         """
+        # Gestion des données
+        if isinstance(data, pd.Series):
+            self.data = pd.DataFrame(data)
+            if self.data.columns[0] == 0:
+                self.data.columns = ['Asset']
+        else:
+            self.data = data
 
-        self.data = data
-        #self.returns = self.data.pct_change().iloc[1:]
+        if not isinstance(self.data, pd.DataFrame):
+            raise TypeError("Les données doivent être un DataFrame ou une Series")
+
+        # Gestion du dictionnaire d'univers par date
+        self.dates_universe = {}
+        if dates_universe is not None:
+            if not isinstance(dates_universe, dict):
+                raise TypeError("dates_universe doit être un dictionnaire")
+            
+            # Vérifie que chaque clé est une date valide et chaque valeur une liste de strings
+            for date_str, tickers in dates_universe.items():
+                # Vérifie le format de la date
+                try:
+                    pd.to_datetime(date_str)
+                except ValueError:
+                    raise ValueError(f"La clé {date_str} n'est pas une date valide au format YYYY-MM-DD")
+                
+                if not isinstance(tickers, list) or not all(isinstance(t, str) for t in tickers):
+                    raise ValueError(f"Les tickers pour la date {date_str} doivent être une liste de strings")
+                
+                # Vérifie que les tickers existent dans data
+                invalid_tickers = [t for t in tickers if t not in self.data.columns]
+                if invalid_tickers:
+                    raise ValueError(f"Tickers non trouvés dans les données: {invalid_tickers}")
+            
+            self.dates_universe = dates_universe
 
     def run(self, 
             start_date: Optional[pd.Timestamp] = None, 
@@ -27,7 +58,7 @@ class Backtester:
             window: int = 365, 
             aum: float = 100, 
             transaction_cost: float = 0.0, 
-            strategy: RankedStrategy = None) -> Result:
+            strategy: Strategy = None) -> Result:
         """
         Exécute le backtest avec les paramètres spécifiés.
 
@@ -38,7 +69,7 @@ class Backtester:
         - window (int): Fenêtre de formation en jours.
         - aum (float): Actifs sous gestion.
         - transaction_cost (float): Coût de transaction en pourcentage.
-        - strategy (RankedStrategy): Stratégie de trading à tester.
+        - strategy (Strategy): Stratégie de trading à tester.
 
         Returns:
         - Result: Résultats du backtest.
@@ -62,25 +93,44 @@ class Backtester:
         self.aum = aum
         self.transaction_cost = transaction_cost
 
+        self.handle_missing_data()
         self.calculate_weights(strategy)
         self.calculate_performance()
 
+        if not hasattr(strategy, 'name'):
+            strategy.name = strategy.__class__.__name__
+
         return Result(self.performance, self.weights, self.total_transaction_costs, strategy.name)
 
-    def calculate_weights(self, strategy: RankedStrategy) -> None:
+    def handle_missing_data(self) -> None:
+        # Supprimer les colonnes avec toutes les valeurs manquantes
+        self.data = self.data.dropna(axis=1, how='all')
+
+        # Sélectionner uniquement les colonnes numériques
+        self.data = self.data.select_dtypes(include=[np.number])
+
+        # Remplir les valeurs manquantes entre le premier et le dernier index valides pour chaque colonne
+        for col in self.data.columns:
+            first_valid_index = self.data[col].first_valid_index()
+            last_valid_index = self.data[col].last_valid_index()
+
+            if first_valid_index is not None and last_valid_index is not None:
+                self.data.loc[first_valid_index:last_valid_index, col] = self.data.loc[first_valid_index:last_valid_index, col].ffill()
+
+        if self.data.empty:
+            raise ValueError("No data available after handling missing values.")
+
+
+    def calculate_weights(self, strategy: Strategy) -> None: 
         """
         Calcule les poids optimaux pour chaque date de rééquilibrage.
 
         Args:
-        - strategy (RankedStrategy): Stratégie de trading à tester.
+        - strategy (Strategy): Stratégie de trading à tester.
 
         Returns:
         - None
         """
-
-        # Initialize lists to collect weights and dates
-        weights_list = []
-        dates_list = []
 
         # Define rebalancing frequency and training window
         freq_dt = pd.DateOffset(days=self.freq)
@@ -105,6 +155,10 @@ class Backtester:
         # Initialize last_weights as zeros
         last_weights = pd.Series(0.0, index=prices.columns)
 
+        # Initialize lists to collect weights and dates
+        weights_list = [last_weights]
+        dates_list = [(current_date - pd.DateOffset(days=1))]
+
         for current_date in rebalancing_dates:
             # Define training period
             train_start = current_date - window_dt
@@ -112,6 +166,22 @@ class Backtester:
 
             # Get training data
             price_window = prices[train_start:train_end]
+
+            # Filtrer selon l'univers de dates
+            if self.dates_universe:
+                # Convertir toutes les dates du dictionnaire en datetime
+                universe_dates = [pd.to_datetime(date) for date in self.dates_universe.keys()]
+                
+                # Trouver la date d'univers la plus récente avant la date courante
+                available_dates = [date for date in universe_dates if date <= current_date]
+                
+                if available_dates:
+                    reference_date = max(available_dates)
+                    active_tickers = self.dates_universe[reference_date.strftime('%Y-%m-%d')]
+                    price_window = price_window[active_tickers]
+                else:
+                    print(f"Pas d'univers défini avant {current_date}")
+                    price_window = pd.DataFrame()  # DataFrame vide si pas de date valide
 
             # Drop columns with missing values
             price_window_filtered = price_window.dropna(axis=1)
@@ -146,12 +216,6 @@ class Backtester:
         
         # Get the data within the specified date range
         df = self.data[self.start_date:self.end_date]
-
-        df = df.dropna(axis=1, how='all')
-        
-        # Backfill missing values to handle days where weights are not available
-        df = df.ffill()
-        df = df.bfill()   
 
         # Calculate returns
         returns = df.pct_change()[1:]
@@ -199,4 +263,3 @@ class Backtester:
 
         # Create a Series for the portfolio performance
         self.performance = pd.Series(portfolio_values, index=dates)
-
